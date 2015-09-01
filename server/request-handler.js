@@ -1,6 +1,10 @@
 var http = require("http");
 var request = require("request");
 var APIcode = require("./config.js");
+var MAX_PER_USER = 5;
+var counter;
+var userInput = 'and';
+var db = require('./db');
 
 var requestHandler = function(req, res) {
   
@@ -14,10 +18,13 @@ var requestHandler = function(req, res) {
 
   var code = req.url.slice(7);
 
-
+  // db.query('select * from profiles', function(err, results) {
+  //   if (err) throw error;
+  //   console.log(results);
+  // })
   headers['Content-Type'] = "text/plain";
 
-
+  //check users
   if (code.length === 32) {
 
     request.post(
@@ -33,11 +40,27 @@ var requestHandler = function(req, res) {
         if (err) {
           console.log("error in Post", err)
         }else{
-          console.log(JSON.parse(body))
-          var userID = JSON.parse(body).user.id;
-          var accessCode = JSON.parse(body).access_token;
+          var parsedBody = JSON.parse(body);
+          var userID = parsedBody.user.id;
+          var accessCode = parsedBody.access_token;
+          var innerString = '("' +
+                            parsedBody.user.id + '", "' +
+                            parsedBody.user.username + '", "' +
+                            parsedBody.user.full_name + '", "' +
+                            parsedBody.user.profile_picture + '", "' +
+                            parsedBody.user.bio + '");';
+          var queryString = "insert into profiles " + 
+            "(userid, username, full_name, profile_picture, bio) values " + innerString;
+          console.log(queryString);
+          db.query(queryString, function(err, results) {
+            if (err && err.code !== 'ER_DUP_ENTRY') {
+              throw err;
+            }
+            counter = 0;
+            getUserFollowers(userID, accessCode);
+          })
 
-          getUserFollowers(userID, accessCode);
+          
         }
       }
     );
@@ -48,15 +71,6 @@ var requestHandler = function(req, res) {
   res.end("Hello, World!");
 };
 
-// These headers will allow Cross-Origin Resource Sharing (CORS).
-// This code allows this server to talk to websites that
-// are on different domains, for instance, your chat client.
-//
-// Your chat client is running from a url like file://your/chat/client/index.html,
-// which is considered a different domain.
-//
-// Another way to get around this restriction is to serve you chat
-// client from this domain by setting up static file serving.
 var defaultCorsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -66,21 +80,81 @@ var defaultCorsHeaders = {
 
 var getUserFollowers = function(userID, accessCode) {
   var requestURL = 'https://api.instagram.com/v1/users/' + userID + '/follows?access_token=' + accessCode;
-  console.log(requestURL);
+  //console.log(requestURL);
+  console.log('running getUserFollowers');
   request(requestURL, function(error, res, body) {
     if (error) throw error;
+    counter++;
+    console.log('tis is counter ' + counter);
+    if (counter >MAX_PER_USER) {
+      console.log('*************DONE**************');
+      return;
+    };
     var userFollowsList = JSON.parse(body).data;
+    
     for (var i = 0; i < userFollowsList.length; i++) {
+      // var checkForDuplicateQuery = "select * from profiles where userid=" + userFollowsList[i].id;
+      // db.query(checkForDuplicateQuery, function(error, res, body) {
+      //   if (error && error.code !== 'ER_DUP_ENTRY') {
+      //     throw error;
+      //   }
+      //   console.log('THIS IS BODY ' + JSON.stringify(body));
+      // })
       newRequestUrl = 'https://api.instagram.com/v1/users/' + userFollowsList[i].id + '/?access_token=' + accessCode;
+      if (counter >MAX_PER_USER) {
+        console.log('*************DONE**************');
+        return;
+      }
+      counter++;
       request(newRequestUrl, function(error, res, body) {
         if (error) throw error;
-        console.log('this is username ' + JSON.parse(body).data.username + ' with this bio ' + JSON.parse(body).data.bio);
+        var parsedBody = JSON.parse(body);
+        if (parsedBody.data === undefined) return;
+        var innerString = '("' +
+                          parsedBody.data.id + '", "' +
+                          parsedBody.data.username + '", "' +
+                          parsedBody.data.full_name + '", "' +
+                          parsedBody.data.profile_picture + '", "' +
+                          db.escape(parsedBody.data.bio).replace(/"/g, '\'') + '", "' +
+                          parsedBody.data.counts.media + '", "' +
+                          parsedBody.data.counts.follows + '", "' +
+                          parsedBody.data.counts.followed_by + '");';
+        var queryString = "insert into profiles " + "(userid, username, full_name, profile_picture, bio, media_count, follows, followers) values " + innerString;
+        //console.log('********* this is the new queryString: ' + queryString);
+        db.query(queryString, function(err, results) {
+          if (err && err.code !== 'ER_DUP_ENTRY') {
+            console.log('*******ERROR!!!******* ' + err);
+            console.log('*******for user: ' + parsedBody.data.username + ' and bio: ' + parsedBody.data.bio);
+          }
+      
+
+          counter++;
+          if (counter >MAX_PER_USER) {
+            console.log('*************DONE**************');
+            return;
+          };
+          getUserFollowers(parsedBody.data.id, accessCode);
+          // console.log('this is username ' + parsedBody.data.username + ' with this bio ' + parsedBody.data.bio);
+          // if (checkForString(parsedBody.data.bio.toLowerCase(), userInput.toLowerCase())) {
+            // console.log('found string ' + userInput + ' in ' + parsedBody.data.bio);
+          // };
+          
+        })
+
+        
+        
+        //console.log('this is the number of calls: ' + counter);
       })
     }
-
+    
   })
 
-  request
+}
+
+var checkForString = function(string, userInput) {
+  var subString = new RegExp(userInput);
+  // console.log(string, userInput);
+  return subString.test(string);
 }
 
 module.exports = requestHandler;
