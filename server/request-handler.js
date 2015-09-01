@@ -1,32 +1,44 @@
 var http = require("http");
 var request = require("request");
 var APIcode = require("./config.js");
-var MAX_PER_USER = 5;
+var MAX_PER_USER = 20;
 var counter;
 var userInput = 'and';
 var db = require('./db');
+var express = require("express");
+var app = express();
+// var randomAccount = Math.floor(Math.random(1,2147483647));
+var randomAccount;
 
-var requestHandler = function(req, res) {
-  
+var loginURL = 'https://instagram.com/oauth/authorize/?client_id=8843d5c662294d3297746ccccac09f8c&redirect_uri=http://127.0.0.1:3000&response_type=code'
+
+var userAuthenticated = false;
+
+app.get('/search', function(req, res) {
   console.log("Serving request type " + req.method + " for url " + req.url);
+  var searchWords = req.url.slice(19);
+  var queryString = "select userid, username, bio from profiles where bio like '%" + searchWords + "%'";
+  console.log('this is queryString ' + queryString);
+  db.query(queryString, function(error, response) {
+    if (error) throw error;
+    res.send(response);
+  })
+})
 
-  // The outgoing status.
-  var statusCode = 200;
-
-  // See the note below about CORS headers.
-  var headers = defaultCorsHeaders;
+app.get('/', function(req,res) {
+  if (!userAuthenticated) {
+    userAuthenticated = true;
+    res.redirect(loginURL);
+  }
+  console.log('user authenticated');
+  console.log("Serving request type " + req.method + " for url " + req.url);
+  // var statusCode = 200;
+  // var headers = defaultCorsHeaders;
+  // headers['Content-Type'] = "text/plain";
 
   var code = req.url.slice(7);
-
-  // db.query('select * from profiles', function(err, results) {
-  //   if (err) throw error;
-  //   console.log(results);
-  // })
-  headers['Content-Type'] = "text/plain";
-
-  //check users
+  //console.log('this is code: ' + code);
   if (code.length === 32) {
-
     request.post(
       { form: { client_id: APIcode.client_id,
                 client_secret: APIcode.client_secret,
@@ -40,36 +52,144 @@ var requestHandler = function(req, res) {
         if (err) {
           console.log("error in Post", err)
         }else{
-          var parsedBody = JSON.parse(body);
-          var userID = parsedBody.user.id;
-          var accessCode = parsedBody.access_token;
-          var innerString = '("' +
-                            parsedBody.user.id + '", "' +
-                            parsedBody.user.username + '", "' +
-                            parsedBody.user.full_name + '", "' +
-                            parsedBody.user.profile_picture + '", "' +
-                            parsedBody.user.bio + '");';
-          var queryString = "insert into profiles " + 
-            "(userid, username, full_name, profile_picture, bio) values " + innerString;
-          console.log(queryString);
-          db.query(queryString, function(err, results) {
-            if (err && err.code !== 'ER_DUP_ENTRY') {
-              throw err;
-            }
-            counter = 0;
-            getUserFollowers(userID, accessCode);
-          })
 
+
+          var parsedBody = JSON.parse(body);
+          console.log('this is body: ' + JSON.stringify(parsedBody));
           
+          var userID = parsedBody.user.id;
+          if (userID === undefined) return;
+          var accessCode = parsedBody.access_token;
+          var queryString = "select 1 from profiles where userid="+userID;
+          db.query(queryString, function(error, res) {
+            if (error && error.code !== 'ER_DUP_ENTRY') {
+              throw error;
+            }
+            if (JSON.stringify(res) === '[]') {
+              var innerString = '("' +
+                                parsedBody.user.id + '", "' +
+                                parsedBody.user.username + '", "' +
+                                parsedBody.user.full_name + '", "' +
+                                parsedBody.user.profile_picture + '", "' +
+                                parsedBody.user.bio + '");';
+              var queryString = "insert into profiles " + 
+                "(userid, username, full_name, profile_picture, bio) values " + innerString;
+              console.log(queryString);
+              db.query(queryString, function(err, results) {
+                if (err && err.code !== 'ER_DUP_ENTRY') {
+                  throw err;
+                }
+                counter = 0;
+                getUserFollowers(userID, accessCode);
+              })
+
+            } else {
+              //user already exists in database
+              counter = 0;
+              randomAccount = Math.floor(Math.random() * 2147483647) + 1;
+              console.log('user exists, searching random account number ' + randomAccount);
+
+              
+              request('https://api.instagram.com/v1/users/' + 89688777, function(error, res, body) {
+                if (error) throw error;
+                if (JSON.parse(body).meta.error_type === 'APINotFoundError') {
+                  randomAccount = Math.floor(Math.random() * 2147483647) + 1;
+                  console.log('this is the new seed ' + randomAccount);
+                } else if (error) {
+                  throw error;
+                } else { 
+                  console.log('going in');
+                  getUserFollowers(randomAccount, accessCode);
+                }
+              })
+              
+              
+
+              
+            }
+
+
+          })
         }
       }
     );
   }
 
-  res.writeHead(statusCode, headers);
+  // res.writeHead(statusCode, headers);
 
-  res.end("Hello, World!");
-};
+  res.sendFile(__dirname +'/htmls/index.html');
+})
+
+// var requestHandler = function(req, res) {
+  
+//   console.log("Serving request type " + req.method + " for url " + req.url);
+
+//   // The outgoing status.
+//   var statusCode = 200;
+
+//   // See the note below about CORS headers.
+//   var headers = defaultCorsHeaders;
+
+  
+//   // if (!userAuthenticated) {
+//   //   console.log('user is not authenticated!');
+//   //   userAuthenticated = true;
+//   //   res.writeHead(302, {'Location': 'https://instagram.com/oauth/authorize/?client_id=8843d5c662294d3297746ccccac09f8c&redirect_uri=http://127.0.0.1:3000&response_type=code'});
+//   //   res.end();
+//   // }
+
+
+//   headers['Content-Type'] = "text/plain";
+
+//   //check users
+
+
+//   var code = req.url.slice(7);
+//   if (code.length === 32) {
+
+//     request.post(
+//       { form: { client_id: APIcode.client_id,
+//                 client_secret: APIcode.client_secret,
+//                 grant_type: 'authorization_code',
+//                 redirect_uri: APIcode.redirect_uri,
+//                 code: code
+//               },
+//         url: 'https://api.instagram.com/oauth/access_token'
+//       },
+//       function (err, response, body) {
+//         if (err) {
+//           console.log("error in Post", err)
+//         }else{
+//           var parsedBody = JSON.parse(body);
+//           var userID = parsedBody.user.id;
+//           var accessCode = parsedBody.access_token;
+//           var innerString = '("' +
+//                             parsedBody.user.id + '", "' +
+//                             parsedBody.user.username + '", "' +
+//                             parsedBody.user.full_name + '", "' +
+//                             parsedBody.user.profile_picture + '", "' +
+//                             parsedBody.user.bio + '");';
+//           var queryString = "insert into profiles " + 
+//             "(userid, username, full_name, profile_picture, bio) values " + innerString;
+//           console.log(queryString);
+//           db.query(queryString, function(err, results) {
+//             if (err && err.code !== 'ER_DUP_ENTRY') {
+//               throw err;
+//             }
+//             counter = 0;
+//             getUserFollowers(userID, accessCode);
+//           })
+
+          
+//         }
+//       }
+//     );
+//   }
+
+//   res.writeHead(statusCode, headers);
+
+//   res.end("Hello, World!");
+// };
 
 var defaultCorsHeaders = {
   "access-control-allow-origin": "*",
@@ -91,22 +211,48 @@ var getUserFollowers = function(userID, accessCode) {
       return;
     };
     var userFollowsList = JSON.parse(body).data;
+    console.log(body);
     
     for (var i = 0; i < userFollowsList.length; i++) {
-      // var checkForDuplicateQuery = "select * from profiles where userid=" + userFollowsList[i].id;
-      // db.query(checkForDuplicateQuery, function(error, res, body) {
-      //   if (error && error.code !== 'ER_DUP_ENTRY') {
-      //     throw error;
-      //   }
-      //   console.log('THIS IS BODY ' + JSON.stringify(body));
-      // })
-      newRequestUrl = 'https://api.instagram.com/v1/users/' + userFollowsList[i].id + '/?access_token=' + accessCode;
+      // console.log('checking var ', i);
+      
+      //*************THIS MIGHT HAVE ERRORS
+
+      //CALLBACK ISSUE WITH 'i' IN LINE 119
+      var checkForDuplicateQuery = "select 1 from profiles where userid=" + userFollowsList[i].id;
+      checkForDuplicates(i, checkForDuplicateQuery, userFollowsList, counter, accessCode)
+            
+    }
+    
+  })
+
+}
+
+var checkForString = function(string, userInput) {
+  var subString = new RegExp(userInput);
+  // console.log(string, userInput);
+  return subString.test(string);
+}
+
+var checkForDuplicates = function(index, queryString, userFollowsList, counter, accessCode) {
+  console.log('running checkForDuplicates');
+  db.query(queryString, function(error, res) {
+    if (error && error.code !== 'ER_DUP_ENTRY') {
+      throw error;
+    }
+    //*************THIS MIGHT HAVE ERRORS
+
+    if (JSON.stringify(res) === '[]') {
+      console.log('does not exist');
+      newRequestUrl = 'https://api.instagram.com/v1/users/' + userFollowsList[index].id + '/?access_token=' + accessCode;
       if (counter >MAX_PER_USER) {
         console.log('*************DONE**************');
         return;
       }
       counter++;
+      console.log('tis is counter ' + counter);
       request(newRequestUrl, function(error, res, body) {
+        console.log('****REQUEST RAN!*****');
         if (error) throw error;
         var parsedBody = JSON.parse(body);
         if (parsedBody.data === undefined) return;
@@ -129,6 +275,7 @@ var getUserFollowers = function(userID, accessCode) {
       
 
           counter++;
+          console.log('tis is counter ' + counter);
           if (counter >MAX_PER_USER) {
             console.log('*************DONE**************');
             return;
@@ -137,25 +284,17 @@ var getUserFollowers = function(userID, accessCode) {
           // console.log('this is username ' + parsedBody.data.username + ' with this bio ' + parsedBody.data.bio);
           // if (checkForString(parsedBody.data.bio.toLowerCase(), userInput.toLowerCase())) {
             // console.log('found string ' + userInput + ' in ' + parsedBody.data.bio);
-          // };
-          
+          // };  
         })
-
-        
         
         //console.log('this is the number of calls: ' + counter);
       })
     }
-    
   })
 
 }
 
-var checkForString = function(string, userInput) {
-  var subString = new RegExp(userInput);
-  // console.log(string, userInput);
-  return subString.test(string);
-}
+app.listen(3000);
 
-module.exports = requestHandler;
+// module.exports = requestHandler;
 
