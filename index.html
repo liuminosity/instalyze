@@ -1,19 +1,80 @@
 <!doctype html>
-<html>
+<html ng-app='instalyze-app'>
   <head>
     <meta charset="utf-8">
     <title>instalyze</title>
     <link rel="stylesheet" href="client/styles/styles.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.4.5/angular.min.js"></script>
+    <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+
+    <script>
+    var instalyze = angular.module('instalyze-app', []);
+    instalyze.controller('dataCtrl', function($scope, $http, $window) {
+      $scope.profiles = [];
+      
+
+      $scope.getSearchResults = function(words, minimum_followers) {
+        $scope.profiles = [];
+        return $http({
+          method:'GET',
+          url: 'http://127.0.0.1:3000/search?searchText=' + words + '/' + minimum_followers,
+          dataType: 'jsonp'
+
+        }).then(function(resp) {
+          console.log('this is the data ' + resp.data);
+          if (resp.data.length !== 0) {
+            for (var i = 0; i < resp.data.length; i++) {
+              $scope.profiles.push(resp.data[i]);
+            }
+          }
+        })
+      }
+
+      $scope.onClick = function(username) {
+        $window.location.href = "https://www.instagram.com/"+username;
+      }
+
+    })
+
+
+
+    </script>
     
   </head>
-  <body>
-    <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
-    <div id="main">
+  <body ng-controller="dataCtrl">
+    <div ng-view></div></div>
       <h1>Instalyze v.02</h1>
-      <p> Here are your results </p>
 
+      <form ng-submit = "getSearchResults(words,minimum_followers)" name="searchForm" validate>
+        What phrase do you want to search? 
+        <input ng-model="words" type="text" required>
+        <br>
+        ...with at least how many followers?
+        <input ng-model="minimum_followers" type="number" required>
+        <br>
+        <input type="submit" value="Search the Instalyze database!" class="sendSearch">
+      </form> 
+      <p> Here are your results: </p>
 
+      <table>
+        <tr>
+          <th ng-click="sortType = 'name'">Username</th>
+          <th>Full name</th>
+          <th>Bio</th>
+          <th>Number of Follows</th>
+          <th>Number of Followers</th>
+          <th>Number of submitted content</th>
+        </tr>
+      <tr ng-repeat="item in profiles">
+        <td ng-click="onClick(item.username)">{{item.username}}</td>
+        <td>{{item.full_name}}</td>
+        <td>{{item.bio}}</td>
+        <td>{{item.follows}}</td>
+        <td>{{item.followers}}</td>
+        <td>{{item.media_count}}</td>
+      </table>
 
+      
       
     </div>
   </body>
